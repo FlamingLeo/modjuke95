@@ -1,8 +1,10 @@
 #include <windows.h>
 #include "res.h"
 
-/* classic multi-image ICO (16+32, 4bpp VGA palette, AND-mask transparency);
- * replace app.ico with your own artwork in the same format to re-skin */
+/* classic multi-image ICO: 32x32 and 16x16, each in 1, 4 and 8 bpp, with
+ * AND-mask transparency; Windows picks the depth that suits the display.
+ * Keep replacement artwork in this format: no PNG-compressed or 32 bpp
+ * images, which Windows 95 can't use */
 IDI_APP ICON "app.ico"
 
 M95MENU MENU
