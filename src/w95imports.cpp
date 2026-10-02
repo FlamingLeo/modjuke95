@@ -16,6 +16,7 @@
 #include <wchar.h>
 #include <ctype.h>
 #include <string.h>
+#include <errno.h>
 
 extern "C"
 {
@@ -327,11 +328,11 @@ int WINAPI shim_GetLocaleInfoExW(LPCWSTR locale, DWORD type, LPWSTR buf, int n)
     return r;
 }
 
-/* ---------- msvcrt exports added after Win98 (Vista-era libc++ hooks) ------ */
+/* ---------- CRT exports CRTDLL.DLL lacks (Vista-era libc++ hooks) --------- */
 /* libc++'s locale/support code references _l (locale-reentrant) and _s
  * (secure) CRT variants that only exist in Vista+ msvcrt.dll. None of our
  * code paths care about the extra locale parameter - delegate to the classic
- * functions that every msvcrt.dll ships with. */
+ * functions that CRTDLL.DLL has. */
 
 int shim_mbtowc_l(wchar_t *dst, const char *src, size_t n, void *loc) asm("__mbtowc_l");
 int shim_mbtowc_l(wchar_t *dst, const char *src, size_t n, void *loc)
@@ -407,7 +408,8 @@ int shim_wcrtomb_s(size_t *ret, char *s, size_t n, wchar_t wc, void *st)
     return 0;
 }
 
-/* rand_s only exists in msvcrt 8+; seed-mix rand() is fine for our uses */
+/* rand_s only exists in msvcrt 8+, not in CRTDLL; seed-mix rand() is fine
+ * for our uses */
 int shim_rand_s(unsigned int *v) asm("_rand_s");
 int shim_rand_s(unsigned int *v)
 {
@@ -415,7 +417,8 @@ int shim_rand_s(unsigned int *v)
     return 0;
 }
 
-/* _aligned_* only exist in msvcrt 8+ (Vista); implement with a back-pointer */
+/* _aligned_* only exist in msvcrt 8+ (Vista), not in CRTDLL; implement with
+ * a back-pointer */
 /* header layout before the returned pointer: { void *raw; size_t size; } */
 void *shim_aligned_malloc(size_t size, size_t align) asm("__aligned_malloc");
 void *shim_aligned_malloc(size_t size, size_t align)
@@ -452,6 +455,43 @@ void *shim_aligned_realloc(void *p, size_t size, size_t align)
     return q;
 }
 
+/* ---------- referenced only by discarded code -------------------------------
+ * libc++ code that --gc-sections drops later still references these, and
+ * the Win95 CRTDLL.DLL doesn't export them, so the link needs definitions.
+ * They fail cleanly in case one ever becomes reachable. */
+FILE *shim_wfopen(const wchar_t *name, const wchar_t *mode)
+{
+    (void)name;
+    (void)mode;
+    errno = ENOENT;
+    return NULL;
+}
+
+void *shim_create_locale(int cat, const char *name)
+{
+    (void)cat;
+    (void)name;
+    return NULL;
+}
+
+void shim_free_locale(void *l)
+{
+    (void)l;
+}
+
+int shim_strerror_s(char *buf, size_t n, int err)
+{
+    if (!buf || n == 0)
+        return 22 /* EINVAL */;
+    const char *m = strerror(err);
+    size_t len = strlen(m);
+    if (len >= n)
+        len = n - 1;
+    memcpy(buf, m, len);
+    buf[len] = '\0';
+    return 0;
+}
+
 /* ---------- no C++ demangler ------------------------------------------------
  * libc++abi's default terminate handler is the only user of __cxa_demangle;
  * defining it here keeps cxa_demangle.o (~166 KB of code and tables) out of
@@ -465,7 +505,7 @@ extern "C" char *__cxa_demangle(const char *, char *, size_t *, int *status)
 }
 
 /* ---------- startup crash logger --------------------------------------------
- * Shadow msvcrt's abort/_amsg_exit/_assert so a failure during CRT or global
+ * Shadow the CRT's abort/_amsg_exit/_assert so a failure during CRT or global
  * init leaves a modjuke95-crash.log next to the exe (caller EIP + EBP walk),
  * mappable via the link map instead of just a dialog box. */
 
@@ -662,6 +702,10 @@ IMP(imp48, _aligned_realloc, &shim_aligned_realloc);
 IMP(imp49, abort, &shim_abort);
 IMP(imp50, _amsg_exit, &shim_amsg_exit);
 IMP(imp51, _assert, &shim_assert);
+IMP(imp52, _wfopen, &shim_wfopen);
+IMP(imp53, _create_locale, &shim_create_locale);
+IMP(imp54, _free_locale, &shim_free_locale);
+IMP(imp55, strerror_s, &shim_strerror_s);
 
 #undef IMP
 

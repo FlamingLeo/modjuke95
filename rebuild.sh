@@ -4,7 +4,8 @@
 #
 #   ./rebuild.sh              fetch the llvm-mingw cross toolchain only
 #   ./rebuild.sh --libopenmpt also build the Win95 lib/libopenmpt.a from source
-#                             and install its headers into include/
+#                             and install its headers into include/ (needs
+#                             the runtime headers from ./rebuild-rt.sh)
 
 cd "$(dirname "$0")"
 
@@ -43,6 +44,20 @@ echo OK: llvm-mingw/
 [ "$MODE" = win95 ] || exit 0
 export PATH="$PWD/llvm-mingw/bin:$PATH"
 
+# compile against the CRTDLL-mode mingw headers of the runtime only
+INC="$PWD/lib-rt/include"
+[ -f "$INC/_mingw.h" ] || { echo "runtime headers missing - run ./rebuild-rt.sh first"; exit 1; }
+R="$PWD/llvm-mingw/lib/clang/23/include"
+V1="$PWD/llvm-mingw/i686-w64-mingw32/include/c++/v1"
+printf '#!/bin/sh\nexec i686-w64-mingw32-clang -nostdinc -isystem "%s" -isystem "%s" "$@"\n' \
+  "$R" "$INC" > "$DL/cc"
+printf '#!/bin/sh\nexec i686-w64-mingw32-clang++ -nostdinc -isystem "%s" -isystem "%s" -isystem "%s" "$@"\n' \
+  "$V1" "$R" "$INC" > "$DL/cxx"
+chmod +x "$DL/cc" "$DL/cxx"
+CC="$DL/cc"
+CXX="$DL/cxx"
+LIBDIR=lib
+
 # libopenmpt 0.8.9 source, unpacked fresh into its own build tree
 B=libopenmpt-win95-build
 unpack_libopenmpt "$B"
@@ -51,13 +66,13 @@ unpack_libopenmpt "$B"
 cd "$B"
 export CPPFLAGS="-DMPT_LIBCXX_QUIRK_NO_STD_THREAD=1 -DMPT_LOG_GLOBAL_LEVEL_STATIC -DMPT_LOG_GLOBAL_LEVEL=0"
 make CONFIG=mingw32crt \
-     CC=i686-w64-mingw32-clang CXX=i686-w64-mingw32-clang++ AR=i686-w64-mingw32-ar \
+     CC="$CC" CXX="$CXX" AR=i686-w64-mingw32-ar \
      WINDOWS_VERSION=win95 STDCXX=gnu++17 MPT_COMPILER_NOIPARA=0 \
      STATIC_LIB=1 SHARED_LIB=0 OPENMPT123=0 EXAMPLES=0 IN_OPENMPT=0 XMP_OPENMPT=0 -j2
 cd ..
 sh scripts/ssescan.sh "$B/bin/libopenmpt.a" >/dev/null || { echo "FAIL: SSE in $B/bin/libopenmpt.a"; exit 1; }
-mkdir -p lib include/libopenmpt
-cp "$B/bin/libopenmpt.a" lib/libopenmpt.a
+mkdir -p "$LIBDIR" include/libopenmpt
+cp "$B/bin/libopenmpt.a" "$LIBDIR/libopenmpt.a"
 
 # public C/C++ API headers
 for h in "$B"/libopenmpt/libopenmpt*.h "$B"/libopenmpt/libopenmpt*.hpp; do
@@ -65,4 +80,4 @@ for h in "$B"/libopenmpt/libopenmpt*.h "$B"/libopenmpt/libopenmpt*.hpp; do
   cp "$h" include/libopenmpt/
 done
 rm -rf "$B"
-echo "OK: lib/libopenmpt.a, include/libopenmpt/"
+echo "OK: $LIBDIR/libopenmpt.a, include/libopenmpt/"

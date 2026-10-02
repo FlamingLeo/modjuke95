@@ -265,7 +265,7 @@ static void load_plan_file()
  * front ("Shuffle now": the playing song first); `avoid` is kept away from
  * the front (queue-end repeat: don't reopen with the song that just ended).
  * Like the original, drawing a new order persists it for this source. */
-/* uniform-enough index below n: msvcrt's RAND_MAX is 32767, so rand() % n
+/* uniform-enough index below n: the CRT's RAND_MAX is 32767, so rand() % n
  * can't reach indexes past 32767 in a bigger library; two calls give 30 bits */
 static unsigned rand_below(unsigned n)
 {
@@ -2958,8 +2958,11 @@ static void refresh_ui()
             char lb[48];
             snprintf(lb, sizeof(lb), "Length: %s", m95_fmt_time(s.dur).c_str());
             SetWindowTextA(G.hLen, lb);
-            SetWindowTextA(G.hDur, m95_fmt_time(s.dur).c_str());
         }
+        /* every time, not only on a range change: a refresh between the
+         * load request and the engine's load writes "--:--" below, and the
+         * range (already set from the analysis) may not change after it */
+        set_text_if_changed(G.hDur, m95_fmt_time(s.dur).c_str());
     } else if (!s.loaded && !seekHeld) {
         /* stopped: thumb home, no length */
         if (SendMessageA(G.hSeek, TBM_GETPOS, 0, 0) != 0)
@@ -3817,7 +3820,10 @@ static bool translate_keys(MSG *m)
         if (GetClassNameA(f, cls, sizeof(cls))) {
             if (lstrcmpiA(cls, "ComboBox") == 0 && SendMessageA(f, CB_GETDROPPEDSTATE, 0, 0))
                 return false;
-            if (lstrcmpiA(cls, "Button") == 0 && (vk == VK_SPACE || vk == VK_RETURN))
+            /* Enter stays with a focused button; Space is always play/pause
+             * (a clicked button keeps the focus, and Space pressing it
+             * again - Clear list, Shuffle now - surprised users) */
+            if (lstrcmpiA(cls, "Button") == 0 && vk == VK_RETURN)
                 return false;
         }
     }

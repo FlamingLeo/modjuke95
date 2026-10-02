@@ -4,7 +4,13 @@
 Fails the build when the PE imports:
   * a DLL that does not ship with Windows 95,
   * a Unicode (…W) Win32 API,
-  * a known post-Win95 kernel32 function, and when the PE header is not a Win95-loadable i386 GUI image.
+  * a known post-Win95 kernel32 function,
+  * MSVCRT.DLL (not on every Win95 install; the C runtime is CRTDLL.DLL),
+  * a CRTDLL function the Windows 95 CRTDLL.DLL doesn't export 
+    (reference list: crtdll95.txt), and when the PE header is not 
+    a Win95-loadable i386 GUI image.
+
+Usage: check95.py file.exe
 """
 import struct, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -13,7 +19,7 @@ import pe_imports
 ALLOWED_DLLS = {
     'KERNEL32.dll', 'USER32.dll', 'GDI32.dll', 'WINMM.dll', 'WINMM.DLL',
     'COMCTL32.dll', 'COMDLG32.dll', 'SHELL32.dll', 'OLE32.dll', 'ADVAPI32.dll',
-    'msvcrt.dll', 'crtdll.dll',
+    'crtdll.dll',
 }
 
 DENY_FUNCS = {
@@ -97,10 +103,21 @@ def header_fails(path):
         fails.append('subsystem %d is not GUI (2)' % subsys)
     return fails
 
+def crtdll95_exports():
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'crtdll95.txt')
+    with open(p) as f:
+        return {l.strip() for l in f if l.strip() and not l.startswith('#')}
+
 def main(path):
     imp = pe_imports.parse(path)
     fails, warns = header_fails(path), []
     norm = {k.upper(): v for k, v in imp.items()}
+    if 'CRTDLL.DLL' not in norm:
+        fails.append('no CRTDLL.DLL import (C runtime missing?)')
+    exports = crtdll95_exports()
+    for fn in norm.get('CRTDLL.DLL', []):
+        if fn not in exports:
+            fails.append('CRTDLL.DLL!%s (not exported by the Win95 CRTDLL 3.50)' % fn)
     for dll in sorted(norm):
         if dll not in {a.upper() for a in ALLOWED_DLLS}:
             fails.append('DLL not on Win95: %s' % dll)
@@ -110,14 +127,11 @@ def main(path):
                 continue
             if fn in DENY_FUNCS:
                 fails.append('%s!%s (post-Win95 API)' % (dll, fn))
-            if dll != 'msvcrt.dll' and dll != 'crtdll.dll' and fn.endswith('W') \
+            if dll != 'CRTDLL.DLL' and fn.endswith('W') \
                and not fn.startswith('waveOut') and not fn.endswith('W2'):
                 fails.append('%s!%s (Unicode API, not native on Win9x)' % (dll, fn))
             if dll == 'KERNEL32.DLL' and fn not in KNOWN_KERNEL32:
                 warns.append('kernel32!%s (not in reference set - review)' % fn)
-            if dll == 'MSVCRT.DLL' and (fn.endswith('_l') or fn.endswith('_s')
-               or fn.startswith('_aligned_')):
-                fails.append('%s!%s (msvcrt export not present on Win9x)' % (dll, fn))
     for w in warns:
         print('WARN: ' + w)
     if fails:
@@ -127,4 +141,6 @@ def main(path):
     print('import audit: %d DLLs, 0 failures, %d warnings' % (len(norm), len(warns)))
 
 if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        sys.exit('usage: check95.py file.exe')
     main(sys.argv[1])

@@ -15,6 +15,7 @@
 *.a
 *.lib
 *.dll
+*.DLL
 
 # Files the player writes next to the exe when run from the tree
 *.ini

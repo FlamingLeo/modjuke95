@@ -22,12 +22,8 @@ for Windows 95, 98 and Me.
 ## Requirements
 
 - Windows 95, 98 or Me (minimum: 486).
-- `MSVCRT.DLL` (the Visual C++ 6.0 runtime).
 - A working waveOut audio device.
 - Module files.
-
-> [!IMPORTANT]
-> Windows 98, 98 SE and Me come with `MSVCRT.DLL`, but some Windows 95 installs lack it. If the program won't start ("A required .DLL, MSVCRT.DLL, was not found", or a missing-export error), copy `MSVCRT.DLL` 6.0 from a Windows 98 SE machine (`C:\WINDOWS\SYSTEM`) or the VC++ 6 redistributable into the folder that holds `modjuke95.exe`.
 
 ## Installation
 
@@ -145,24 +141,25 @@ Rate and buffering apply on the next track load. Everything else applies immedia
 
 ## Building
 
-modjuke95 is cross-compiled from a Linux x86_64 host. Host requirements: `curl`, `tar`, `xz`, `python3`, `make`,
-`git` and autotools for the runtime rebuild only.
+modjuke95 is cross-compiled from a Linux x86_64 host. Host requirements: `curl`, `tar`, `xz`, `python3`, `make`.
 
 ```sh
-./rebuild.sh --libopenmpt   # llvm-mingw toolchain (~80 MB download, ~620 MB on
-                            # disk), then lib/libopenmpt.a + include/ (~2 min)
-./rebuild-rt.sh             # SSE-free CRT/C++ runtime into lib-rt/ (30-60 min)
+./rebuild.sh                # llvm-mingw toolchain (~80 MB download, ~620 MB on disk)
+./rebuild-rt.sh             # SSE-free CRT/C++ runtime + CRT headers into lib-rt/
+                            # (~5 min on 4 cores)
+./rebuild.sh --libopenmpt   # lib/libopenmpt.a + include/ (~2 min)
 sh build.sh                 # build/modjuke95.exe + audits
 ```
 
-Steps one and two run once. Afterwards `sh build.sh` is all a rebuild
-needs. `./rebuild.sh` without arguments fetches only the toolchain.
+The first three steps run once, in this order (libopenmpt compiles
+against the runtime's headers). Afterwards `sh build.sh` is all a rebuild
+needs.
 
 | Path | Contents |
 | ---- | -------- |
 | `src/` | Application sources and the resource script |
 | `resources/` | Program icon |
-| `scripts/` | Build audits: `check95.py` (imports + PE header, uses `pe_imports.py`), `ssescan.sh` (SSE scan of objects/archives) |
+| `scripts/` | Build audits: `check95.py` (imports + PE header, uses `pe_imports.py`; also checks every CRTDLL import against `crtdll95.txt`, the export list of the Windows 95 `CRTDLL.DLL` made with `pe_exports.py`), `ssescan.sh` (SSE scan of objects/archives) |
 | `build.sh` | Compiles and links the exe, then runs the Win95 import and SSE audits |
 | `rebuild.sh` | Fetches the llvm-mingw toolchain, `--libopenmpt` builds libopenmpt 0.8.9 for Win95 |
-| `rebuild-rt.sh` | Rebuilds the static runtime (CRT, libc++, libc++abi, libunwind, compiler-rt) for i486 without SSE |
+| `rebuild-rt.sh` | Rebuilds the static runtime (mingw-w64 v14 CRT for `CRTDLL.DLL`, libc++, libc++abi, libunwind, compiler-rt) for i486 without SSE |
