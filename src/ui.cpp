@@ -39,6 +39,12 @@ struct App
     Settings set;
     std::vector<Track> lib, fav;
     std::vector<Playlist> pls;
+    /* entries in formats this edition can't play: hidden, but written back
+     * (playlists keep theirs in Playlist::hidden) */
+    std::vector<HiddenEntry> libHidden, favHidden;
+    /* the saved session is a song this edition can't play: leave it for
+     * the other edition until something is played here */
+    bool keepSession = false;
     std::vector<std::string> ign; // ignored file paths (lowercase)
     /* persistent shuffle orders, keyed per source ("library", "favorites",
      * "playlist:<name>") - like the original, a drawn order survives sort
@@ -77,6 +83,19 @@ struct App
         return empty;
     }
     std::vector<Track> &src() { return srcBy(srcSel); }
+    std::vector<HiddenEntry> &hiddenBy(int sel)
+    {
+        static std::vector<HiddenEntry> empty;
+        if (sel == 0)
+            return libHidden;
+        if (sel == 1)
+            return favHidden;
+        int p = sel - 2;
+        if (p >= 0 && p < (int)pls.size())
+            return pls[p].hidden;
+        empty.clear();
+        return empty;
+    }
 };
 
 static App G;
@@ -135,6 +154,7 @@ static void refresh_count()
             nm = G.pls[G.srcSel - 2].name.c_str();
         unsigned total = (unsigned)G.src().size();
         unsigned vis = (unsigned)G.view.size();
+        unsigned other = (unsigned)G.hiddenBy(G.srcSel).size();
         /* playlist names can be up to 255 chars - build in a std::string,
          * a fixed 96-byte buffer here would overflow */
         std::string rb;
@@ -145,6 +165,11 @@ static void refresh_count()
             else
                 sprintf(nb, "%u of %u tracks", vis, total);
             rb = std::string(nm) + ": " + nb;
+            if (other) {
+                /* entries in formats this edition can't play */
+                sprintf(nb, ", %u in other formats", other);
+                rb += nb;
+            }
         }
         /* size the right part to the text so even 4-digit counts never clip
          * on narrow windows; the left part keeps at least 240px for status */
@@ -980,6 +1005,7 @@ static void load_current(int subsong, double startPos = 0, bool startPaused = fa
     Track *t = current_track();
     if (!t)
         return;
+    G.keepSession = false;
     DWORD at = GetFileAttributesA(t->path.c_str());
     if (at == 0xFFFFFFFF || (at & FILE_ATTRIBUTE_DIRECTORY)) {
         /* the marker already moved here: stop whatever played before, so
@@ -1336,12 +1362,12 @@ static void save_all_lists()
     /* every file goes through temp + swap (m3u_export), and nothing is
      * deleted before its replacement exists: a crash, power loss or full
      * disk at any point leaves the previous complete set */
-    bool ok = m3u_export(dir + "last.m3u", G.lib);
-    ok = m3u_export(dir + "favorites.m3u", G.fav) && ok;
+    bool ok = m3u_export(dir + "last.m3u", G.lib, &G.libHidden);
+    ok = m3u_export(dir + "favorites.m3u", G.fav, &G.favHidden) && ok;
     for (size_t i = 0; i < G.pls.size(); i++) {
         char fn[64];
         sprintf(fn, "playlist-%d.m3u", (int)i + 1);
-        ok = m3u_export(dir + fn, G.pls[i].tr) && ok;
+        ok = m3u_export(dir + fn, G.pls[i].tr, &G.pls[i].hidden) && ok;
     }
     char nb[16];
     sprintf(nb, "%u", (unsigned)G.pls.size());
@@ -1946,6 +1972,9 @@ static void scan_into(const std::string &dir)
         logline("Folder not found: %s - library kept", dir.c_str());
         return;
     }
+    /* another folder replaces the library, including entries this edition
+     * hides; a rescan of the same folder keeps them (it can't see them) */
+    bool sameDir = lstrcmpiA(G.lastDir.c_str(), dir.c_str()) == 0;
     G.lastDir = dir;
     WritePrivateProfileStringA("session", "lastdir", dir.c_str(),
                                (m95_exe_dir() + "modjuke95.ini").c_str());
@@ -1961,6 +1990,8 @@ static void scan_into(const std::string &dir)
     bool gone = false;
     EnterCriticalSection(&G.acs);
     G.lib.clear();
+    if (!sameDir)
+        G.libHidden.clear();
     scan_dir(dir, G.exts, G.lib);
     /* ignored files never show up again */
     {
@@ -2448,6 +2479,17 @@ static INT_PTR CALLBACK FilterProc(HWND h, UINT msg, WPARAM wp, LPARAM)
 
 static INT_PTR CALLBACK AboutProc(HWND h, UINT msg, WPARAM wp, LPARAM)
 {
+    if (msg == WM_INITDIALOG) {
+        char b[96];
+        snprintf(b, sizeof(b), "Edition: %s (%u file types).", m95_edition(),
+                 (unsigned)G.exts.size());
+        SetDlgItemTextA(h, IDC_ABOUT_EDITION, b);
+        std::string ty = "Plays: ";
+        for (size_t i = 0; i < G.exts.size(); i++)
+            ty += (i ? ", " : "") + G.exts[i];
+        SetDlgItemTextA(h, IDC_ABOUT_FORMATS, ty.c_str());
+        return TRUE;
+    }
     if (msg == WM_COMMAND && (wp == IDOK || wp == IDCANCEL)) {
         EndDialog(h, 0);
         return TRUE;
@@ -2568,7 +2610,8 @@ static void on_command(int id)
         o.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
         if (GetOpenFileNameA(&o)) {
             std::vector<Track> t;
-            if (m3u_import(fn, t)) {
+            std::vector<HiddenEntry> hid;
+            if (m3u_import(fn, t, &G.exts, &hid)) {
                 int dst = G.srcSel;
                 if (dst < 1) {
                     /* import into a fresh playlist when viewing the library */
@@ -2582,12 +2625,21 @@ static void on_command(int id)
                 }
                 EnterCriticalSection(&G.acs);
                 std::vector<Track> &d = G.srcBy(dst);
+                /* hidden ones from the top of the file follow the list's
+                 * current end, where the import is appended */
+                std::string tail = d.empty() ? std::string() : d.back().path;
                 unsigned added = 0;
                 for (size_t i = 0; i < t.size(); i++)
                     if (!vec_has_path(d, t[i].path)) {
                         d.push_back(t[i]);
                         added++;
                     }
+                std::vector<HiddenEntry> &dh = G.hiddenBy(dst);
+                for (size_t i = 0; i < hid.size(); i++) {
+                    if (hid[i].after.empty())
+                        hid[i].after = tail;
+                    dh.push_back(hid[i]);
+                }
                 LeaveCriticalSection(&G.acs);
                 if (G.srcSel == dst)
                     rebuild_view();
@@ -2596,7 +2648,10 @@ static void on_command(int id)
                 queue_analysis(dst);
                 refresh_count();
                 logline("Imported %u track(s), %u new", (unsigned)t.size(), added);
-                if (added)
+                if (!hid.empty())
+                    logline("%u entr%s in formats this edition can't play: kept, not shown",
+                            (unsigned)hid.size(), hid.size() == 1 ? "y" : "ies");
+                if (added || !hid.empty())
                     save_all_lists();
             }
         }
@@ -2617,10 +2672,12 @@ static void on_command(int id)
             /* copy under the lock: the analyzer thread updates track fields
              * concurrently */
             std::vector<Track> cp;
+            std::vector<HiddenEntry> hid;
             EnterCriticalSection(&G.acs);
             cp = G.src();
+            hid = G.hiddenBy(G.srcSel); /* exported too: it's the whole list */
             LeaveCriticalSection(&G.acs);
-            if (m3u_export(fn, cp))
+            if (m3u_export(fn, cp, &hid))
                 logline("Exported to %s", fn);
         }
         break;
@@ -3114,7 +3171,7 @@ static void save_session()
         WritePrivateProfileStringA("session", "lastpos", pb, ini.c_str());
         sprintf(pb, "%d", G.curSub);
         WritePrivateProfileStringA("session", "lastsub", pb, ini.c_str());
-    } else {
+    } else if (!G.keepSession) {
         WritePrivateProfileStringA("session", "lastpath", NULL, ini.c_str());
     }
 }
@@ -3260,17 +3317,20 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         G.engine.setTrkDelay(G.set.trkDelayMs);
         apply_rates(); /* timer + engine refresh, honoring background mode */
         G.engine.setVolume(G.set.volume, G.set.mute);
-        logline("modjuke95 v1 (libopenmpt %s)", mpt_version_string().c_str());
+        logline("modjuke95 v1, %s edition (libopenmpt %s, %u file types)", m95_edition(),
+                mpt_version_string().c_str(), (unsigned)G.exts.size());
         {
             std::string dir = m95_exe_dir();
             std::string last = dir + "last.m3u";
             std::vector<Track> t;
-            if (m3u_import(last, t) && !t.empty()) {
+            std::vector<HiddenEntry> lh;
+            if (m3u_import(last, t, &G.exts, &lh) && (!t.empty() || !lh.empty())) {
                 G.lib = t;
+                G.libHidden = lh;
                 logline("Restored %u library tracks", (unsigned)t.size());
             }
             /* favorites */
-            m3u_import(dir + "favorites.m3u", G.fav);
+            m3u_import(dir + "favorites.m3u", G.fav, &G.exts, &G.favHidden);
             /* playlists (names in the ini, tracks in playlist-N.m3u) */
             std::string ini = dir + "modjuke95.ini";
             int npl = GetPrivateProfileIntA("playlists", "count", 0, ini.c_str());
@@ -3286,7 +3346,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 pl.name = unique_pl_name(nm, -1);
                 /* a missing file keeps the (empty) playlist: dropping it
                  * would lose its name at the next save */
-                m3u_import(dir + fn, pl.tr);
+                m3u_import(dir + fn, pl.tr, &G.exts, &pl.hidden);
                 G.pls.push_back(pl);
             }
             /* ignored files */
@@ -3328,7 +3388,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             double pos = 0;
             int sub = 1;
             int fsrc = -1, fidx = -1;
-            if (lp[0] && !path_ignored(lp)) {
+            /* a song in a format this edition can't play isn't resumed,
+             * but stays saved for the edition that can */
+            if (lp[0] && !entry_supported(lp, G.exts))
+                G.keepSession = true;
+            if (lp[0] && !path_ignored(lp) && entry_supported(lp, G.exts)) {
                 DWORD at = GetFileAttributesA(lp);
                 if (at != 0xFFFFFFFF && !(at & FILE_ATTRIBUTE_DIRECTORY)) {
                     char pb[32];

@@ -1,4 +1,6 @@
 #include "model.h"
+#include <algorithm>
+#include <map>
 
 void Track::rekey()
 {
@@ -132,6 +134,23 @@ bool has_module_ext(const std::string &name, const std::vector<std::string> &ext
     return false;
 }
 
+bool entry_supported(const std::string &path, const std::vector<std::string> &exts)
+{
+    if (has_module_ext(path, exts))
+        return true;
+    /* Amiga-style "mod.title": the type is the prefix of the file name */
+    size_t sep = m95_last_sep(path);
+    size_t b = sep == std::string::npos ? 0 : sep + 1;
+    size_t dot = path.find('.', b);
+    if (dot == std::string::npos || dot == b)
+        return false;
+    std::string e = m95_lower(path.substr(b, dot - b));
+    for (size_t i = 0; i < exts.size(); i++)
+        if (exts[i] == e)
+            return true;
+    return false;
+}
+
 void scan_dir(const std::string &root, const std::vector<std::string> &exts,
               std::vector<Track> &out)
 {
@@ -162,7 +181,13 @@ void scan_dir(const std::string &root, const std::vector<std::string> &exts,
     FindClose(h);
 }
 
-bool m3u_export(const std::string &path, const std::vector<Track> &tracks)
+static void m3u_put_hidden(FILE *f, const HiddenEntry &h)
+{
+    fprintf(f, "#EXTINF:-1,%s\n%s\n", m95_basename(h.path).c_str(), h.path.c_str());
+}
+
+bool m3u_export(const std::string &path, const std::vector<Track> &tracks,
+                const std::vector<HiddenEntry> *hidden)
 {
     /* temp + swap: a crash, power loss or full disk mid-write must not
      * leave a truncated list behind */
@@ -170,14 +195,46 @@ bool m3u_export(const std::string &path, const std::vector<Track> &tracks)
     if (!f)
         return false;
     fputs("#EXTM3U\n", f);
+    /* hidden entries by the path they followed; each anchor is used once,
+     * at its first occurrence (a map: big lists x many hidden entries) */
+    std::map<std::string, std::vector<size_t>> after;
+    if (hidden) {
+        for (size_t i = 0; i < hidden->size(); i++) {
+            if ((*hidden)[i].after.empty())
+                m3u_put_hidden(f, (*hidden)[i]);
+            else
+                after[(*hidden)[i].after].push_back(i);
+        }
+    }
     for (size_t i = 0; i < tracks.size(); i++) {
         fprintf(f, "#EXTINF:-1,%s\n%s\n", tracks[i].title.c_str(), tracks[i].path.c_str());
+        if (!after.empty()) {
+            auto it = after.find(tracks[i].path);
+            if (it != after.end()) {
+                for (size_t k : it->second)
+                    m3u_put_hidden(f, (*hidden)[k]);
+                after.erase(it);
+            }
+        }
+    }
+    /* the entry they followed is gone: keep them, at the end, in order */
+    if (!after.empty()) {
+        std::vector<size_t> rest;
+        for (auto &a : after)
+            rest.insert(rest.end(), a.second.begin(), a.second.end());
+        std::sort(rest.begin(), rest.end());
+        for (size_t k : rest)
+            m3u_put_hidden(f, (*hidden)[k]);
     }
     return m95_tmp_commit(f, path);
 }
 
-bool m3u_import(const std::string &path, std::vector<Track> &out)
+bool m3u_import(const std::string &path, std::vector<Track> &out,
+                const std::vector<std::string> *exts, std::vector<HiddenEntry> *hidden)
 {
+    /* hidden entries follow the last visible entry read so far (or the
+     * last visible one already in out, when importing into a list) */
+    std::string prev = out.empty() ? std::string() : out.back().path;
     FILE *f = fopen(path.c_str(), "r");
     if (!f) /* a crash between remove and rename leaves only the .tmp */
         f = fopen((path + ".tmp").c_str(), "r");
@@ -220,6 +277,14 @@ bool m3u_import(const std::string &path, std::vector<Track> &out)
         bool absolute = (s.size() >= 2 && s[1] == ':') || s[0] == '\\';
         if (!absolute && !base.empty())
             s = m95_join(base, s.c_str());
+        if (exts && hidden && !entry_supported(s, *exts)) {
+            HiddenEntry h;
+            h.after = prev;
+            h.path = s;
+            hidden->push_back(h);
+            continue;
+        }
+        prev = s;
         Track t;
         t.path = s;
         t.title = m95_basename(s);

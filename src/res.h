@@ -113,6 +113,8 @@
 #define IDC_FLT_MAXLEN       340
 #define IDC_FLT_CLEAR        341
 #define IDC_FLT_GROUP        342
+#define IDC_ABOUT_EDITION    343
+#define IDC_ABOUT_FORMATS    344
 
 /* custom messages */
 #define WM_APP_ENDED         (WM_APP + 1)

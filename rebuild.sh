@@ -3,9 +3,12 @@
 # Recreate the modjuke95 build environment on Linux, x86_64.
 #
 #   ./rebuild.sh              fetch the llvm-mingw cross toolchain only
-#   ./rebuild.sh --libopenmpt also build the Win95 lib/libopenmpt.a from source
-#                             and install its headers into include/ (needs
-#                             the runtime headers from ./rebuild-rt.sh)
+#   ./rebuild.sh --libopenmpt also build the Win95 libopenmpt from source, twice:
+#                             lib/libopenmpt.a (all formats) and
+#                             lib/libopenmpt-common.a (common formats only,
+#                             see scripts/formats.py), and install its
+#                             headers into include/ (needs the runtime
+#                             headers from ./rebuild-rt.sh)
 
 cd "$(dirname "$0")"
 
@@ -58,21 +61,32 @@ CC="$DL/cc"
 CXX="$DL/cxx"
 LIBDIR=lib
 
-# libopenmpt 0.8.9 source, unpacked fresh into its own build tree
+# libopenmpt 0.8.9 source, unpacked fresh into its own build tree, with the
+# rare formats marked for the common-formats edition (no change without
+# -DMODJUKE95_COMMON_FORMATS)
 B=libopenmpt-win95-build
 unpack_libopenmpt "$B"
+python3 -B scripts/formats.py "$B"
 
 # static libopenmpt for Win95
-cd "$B"
-export CPPFLAGS="-DMPT_LIBCXX_QUIRK_NO_STD_THREAD=1 -DMPT_LOG_GLOBAL_LEVEL_STATIC -DMPT_LOG_GLOBAL_LEVEL=0"
-make CONFIG=mingw32crt \
+BASEFLAGS="-DMPT_LIBCXX_QUIRK_NO_STD_THREAD=1 -DMPT_LOG_GLOBAL_LEVEL_STATIC -DMPT_LOG_GLOBAL_LEVEL=0"
+mk() {
+  (cd "$B" && make CONFIG=mingw32crt \
      CC="$CC" CXX="$CXX" AR=i686-w64-mingw32-ar \
      WINDOWS_VERSION=win95 STDCXX=gnu++17 MPT_COMPILER_NOIPARA=0 \
-     STATIC_LIB=1 SHARED_LIB=0 OPENMPT123=0 EXAMPLES=0 IN_OPENMPT=0 XMP_OPENMPT=0 -j2
-cd ..
-sh scripts/ssescan.sh "$B/bin/libopenmpt.a" >/dev/null || { echo "FAIL: SSE in $B/bin/libopenmpt.a"; exit 1; }
+     STATIC_LIB=1 SHARED_LIB=0 OPENMPT123=0 EXAMPLES=0 IN_OPENMPT=0 XMP_OPENMPT=0 -j2)
+  sh scripts/ssescan.sh "$B/bin/libopenmpt.a" >/dev/null || { echo "FAIL: SSE in $B/bin/libopenmpt.a"; exit 1; }
+}
 mkdir -p "$LIBDIR" include/libopenmpt
+export CPPFLAGS="$BASEFLAGS"
+mk
 cp "$B/bin/libopenmpt.a" "$LIBDIR/libopenmpt.a"
+# common-formats edition: only the two patched tables differ, so only they
+# are rebuilt (touch: make doesn't track CPPFLAGS)
+export CPPFLAGS="$BASEFLAGS -DMODJUKE95_COMMON_FORMATS"
+touch "$B/soundlib/Sndfile.cpp" "$B/soundlib/Tables.cpp"
+mk
+cp "$B/bin/libopenmpt.a" "$LIBDIR/libopenmpt-common.a"
 
 # public C/C++ API headers
 for h in "$B"/libopenmpt/libopenmpt*.h "$B"/libopenmpt/libopenmpt*.hpp; do
@@ -80,4 +94,4 @@ for h in "$B"/libopenmpt/libopenmpt*.h "$B"/libopenmpt/libopenmpt*.hpp; do
   cp "$h" include/libopenmpt/
 done
 rm -rf "$B"
-echo "OK: $LIBDIR/libopenmpt.a, include/libopenmpt/"
+echo "OK: $LIBDIR/libopenmpt.a, $LIBDIR/libopenmpt-common.a, include/libopenmpt/"

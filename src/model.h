@@ -24,10 +24,22 @@ struct Track
     void rekey();
 };
 
+/* A list entry this build can't play (its type isn't one the linked
+ * libopenmpt supports, e.g. a rare format in the common-formats edition):
+ * kept out of the list, and written back on save right after the entry it
+ * followed ("" = at the start), so another edition still finds it. With a
+ * path listed twice (the app never does that) it follows the first copy. */
+struct HiddenEntry
+{
+    std::string after; /* path of the preceding visible entry */
+    std::string path;
+};
+
 struct Playlist
 {
     std::string name;
     std::vector<Track> tr;
+    std::vector<HiddenEntry> hidden;
 };
 
 enum OrderMode { ORDER_ALPHA = 0, ORDER_PATH = 1, ORDER_SHUFFLE = 2 };
@@ -62,6 +74,15 @@ bool has_module_ext(const std::string &name, const std::vector<std::string> &ext
 void scan_dir(const std::string &root, const std::vector<std::string> &exts,
               std::vector<Track> &out);
 
-/* M3U import/export. */
-bool m3u_export(const std::string &path, const std::vector<Track> &tracks);
-bool m3u_import(const std::string &path, std::vector<Track> &out);
+/* the file type (extension, or the Amiga-style prefix of "mod.title") is
+ * one of exts; list entries that fail this are hidden, not dropped */
+bool entry_supported(const std::string &path, const std::vector<std::string> &exts);
+
+/* M3U import/export. With exts and hidden given, import moves entries that
+ * fail entry_supported() into hidden; export writes hidden entries back
+ * after the visible entry each followed (at the end if that one is gone). */
+bool m3u_export(const std::string &path, const std::vector<Track> &tracks,
+                const std::vector<HiddenEntry> *hidden = nullptr);
+bool m3u_import(const std::string &path, std::vector<Track> &out,
+                const std::vector<std::string> *exts = nullptr,
+                std::vector<HiddenEntry> *hidden = nullptr);

@@ -29,6 +29,7 @@ size_t m95_last_sep(const std::string &p);           // last '\\' or '/', DBCS-s
 std::string m95_utf8_to_ansi(const std::string &s, bool onlyIfValid = false);
 std::string m95_fmt_time(double sec);            // "m:ss", "--:--" when invalid
 std::string m95_exe_dir();                       // trailing backslash
+const char *m95_edition(); // "full" or "common formats" (edition.cpp)
 std::string m95_basename(const std::string &p); // file name part
 std::string m95_parentdir(const std::string &p);
 bool m95_read_file(const std::string &path, std::vector<char> &out);
