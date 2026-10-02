@@ -1,0 +1,79 @@
+# Builds both editions of modjuke95.exe (full and common formats) with the
+# same scripts as a local build, including the Win95 import and SSE audits.
+# Every run keeps the exes as an artifact (Actions tab > the run >
+# Artifacts). A tag v* also creates a draft release with modjuke95.exe,
+# modjuke95-common.exe and the license files attached; publish it on GitHub
+# when it looks right.
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain, the SSE-free runtime (./rebuild-rt.sh, the slow part)
+      # and libopenmpt only change with the scripts that make them.
+      - name: Restore the toolchain, runtime and libopenmpt
+        id: stack
+        uses: actions/cache@v6
+        with:
+          path: |
+            llvm-mingw
+            lib-rt
+            lib
+            include
+          key: win95-stack-${{ hashFiles('rebuild.sh', 'rebuild-rt.sh', 'scripts/formats.py') }}
+      - name: Build the toolchain, runtime and libopenmpt
+        if: steps.stack.outputs.cache-hit != 'true'
+        run: |
+          ./rebuild.sh
+          JOBS=$(nproc) ./rebuild-rt.sh
+          ./rebuild.sh --libopenmpt
+
+      - name: Build both editions (with the Win95 audits)
+        run: sh build.sh
+
+      - name: Collect
+        run: |
+          mkdir -p dist
+          cp build/modjuke95.exe dist/modjuke95.exe
+          cp build-common/modjuke95.exe dist/modjuke95-common.exe
+          # the exes are linked with -s; the maps turn crash addresses into names
+          cp build/modjuke95.map dist/modjuke95.map
+          cp build-common/modjuke95.map dist/modjuke95-common.map
+          # the exe contains libopenmpt and runtime code whose licenses ask
+          # for their notices to come with it
+          zip -q -X -r dist/modjuke95-licenses.zip LICENSE THIRD-PARTY.txt licenses
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: modjuke95
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: modjuke95
+          path: dist
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/modjuke95.exe dist/modjuke95-common.exe dist/modjuke95-licenses.zip \
+            --repo "$GITHUB_REPOSITORY" --draft --title "modjuke95 $GITHUB_REF_NAME" --generate-notes
