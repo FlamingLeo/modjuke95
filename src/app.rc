@@ -1,0 +1,150 @@
+#include <windows.h>
+#include "res.h"
+
+/* classic multi-image ICO (16+32, 4bpp VGA palette, AND-mask transparency);
+ * replace app.ico with your own artwork in the same format to re-skin */
+IDI_APP ICON "app.ico"
+
+M95MENU MENU
+BEGIN
+  POPUP "&File"
+  BEGIN
+    MENUITEM "&Open files...\tCtrl+O",   IDM_FILE_OPEN
+    MENUITEM "Open &folder...",          IDM_FILE_OPENFOLDER
+    MENUITEM "Res&can",                  IDM_FILE_RESCAN
+    MENUITEM SEPARATOR
+    MENUITEM "&Import M3U...",           IDM_FILE_IMPORTM3U
+    MENUITEM "&Export M3U...",           IDM_FILE_EXPORTM3U
+    MENUITEM SEPARATOR
+    MENUITEM "E&xit",                    IDM_FILE_EXIT
+  END
+  POPUP "&Playback"
+  BEGIN
+    MENUITEM "&Play/Pause\tSpace",       IDM_PB_PLAYPAUSE
+    MENUITEM "&Stop",                    IDM_PB_STOP
+    MENUITEM "Pre&vious",                IDM_PB_PREV
+    MENUITEM "&Next",                    IDM_PB_NEXT
+    MENUITEM SEPARATOR
+    MENUITEM "&Loop track",              IDM_PB_LOOP
+    MENUITEM "&Repeat queue",            IDM_PB_REPEAT
+    MENUITEM "&Mute",                    IDM_PB_MUTE
+    MENUITEM SEPARATOR
+    MENUITEM "&Tracker view\tF4",        IDM_VIEW_TRACKER
+  END
+  POPUP "Play&lists" /* Alt+P is Playback */
+  BEGIN
+    MENUITEM "&New playlist...",         IDM_PL_NEW
+    MENUITEM "R&ename playlist...",      IDM_PL_RENAME
+    MENUITEM "&Delete playlist",         IDM_PL_DELETE
+    MENUITEM SEPARATOR
+    MENUITEM "Add selection to &favorites", IDM_PL_FAV
+    MENUITEM "Remove selection from favorites", IDM_PL_UNFAV
+    MENUITEM "&Ignore selection",        IDM_PL_IGNORE
+    MENUITEM "&Manage ignored tracks...", IDM_PL_MANAGEIGN
+  END
+  POPUP "&Help"
+  BEGIN
+    MENUITEM "&Settings...",             IDM_HELP_SETTINGS
+    MENUITEM "&About...",                IDM_HELP_ABOUT
+  END
+END
+
+M95ACC ACCELERATORS
+BEGIN
+  VK_SPACE,   IDM_PB_PLAYPAUSE,   VIRTKEY
+  "O",        IDM_FILE_OPEN,      VIRTKEY, CONTROL
+  VK_RETURN,  IDM_PLAY_SELECTED,  VIRTKEY
+  VK_LEFT,    IDM_SEEK_BACK,      VIRTKEY
+  VK_RIGHT,   IDM_SEEK_FWD,       VIRTKEY
+  VK_LEFT,    IDM_SEEK_BACK30,    VIRTKEY, CONTROL
+  VK_RIGHT,   IDM_SEEK_FWD30,     VIRTKEY, CONTROL
+  VK_PRIOR,   IDM_PB_PREV,        VIRTKEY
+  VK_NEXT,    IDM_PB_NEXT,        VIRTKEY
+  "L",        IDM_TOGGLE_LOOP,    VIRTKEY
+  "R",        IDM_TOGGLE_REPEAT,  VIRTKEY
+  "M",        IDM_PB_MUTE,        VIRTKEY
+  VK_OEM_PLUS,  IDM_VOL_UP,       VIRTKEY
+  VK_OEM_MINUS, IDM_VOL_DOWN,     VIRTKEY
+  "0",        IDM_VOL_ZERO,       VIRTKEY
+  VK_F5,      IDM_FILE_RESCAN,    VIRTKEY
+  "S",        IDM_PL_SHUFFLENOW,  VIRTKEY, CONTROL
+  "F",        IDM_FOCUS_SEARCH,   VIRTKEY, CONTROL
+  "R",        IDM_REVEAL_PLAYING, VIRTKEY, CONTROL
+  VK_F1,      IDM_HELP_ABOUT,     VIRTKEY
+  VK_F4,      IDM_VIEW_TRACKER, VIRTKEY
+  VK_LEFT,    IDM_TRK_CHL,      VIRTKEY, CONTROL, SHIFT
+  VK_RIGHT,   IDM_TRK_CHR,      VIRTKEY, CONTROL, SHIFT
+  VK_ESCAPE,  IDM_CLEAR_SEARCH,   VIRTKEY
+END
+
+IDD_SETTINGS DIALOG DISCARDABLE 0, 0, 190, 158
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 8, "MS Sans Serif"
+BEGIN
+  LTEXT           "Sample rate:",        -1,              10, 12, 60, 8
+  COMBOBOX        IDC_SET_RATE,          80, 10, 100, 80,  CBS_DROPDOWNLIST | WS_TABSTOP
+  LTEXT           "Interpolation:",      -1,              10, 30, 60, 8
+  COMBOBOX        IDC_SET_INTERP,        80, 28, 100, 80,  CBS_DROPDOWNLIST | WS_TABSTOP
+  LTEXT           "Buffering:",          -1,              10, 48, 60, 8
+  COMBOBOX        IDC_SET_BUFFER,        80, 46, 100, 80,  CBS_DROPDOWNLIST | WS_TABSTOP
+  LTEXT           "Tracker delay:",      -1,              10, 66, 60, 8
+  COMBOBOX        IDC_SET_TRKDELAY,      80, 64, 100, 110, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+  LTEXT           "Window title:",       -1,              10, 84, 60, 8
+  COMBOBOX        IDC_SET_TITLE,         80, 82, 100, 80,  CBS_DROPDOWNLIST | WS_TABSTOP
+  LTEXT           "UI refresh:",         -1,              10, 102, 60, 8
+  COMBOBOX        IDC_SET_REFRESH,       80, 100, 100, 80, CBS_DROPDOWNLIST | WS_TABSTOP
+  LTEXT           "Rate/buffers apply on next track load.", -1, 10, 120, 170, 8
+  DEFPUSHBUTTON   "OK",                  IDOK,            40, 138, 50, 14
+  PUSHBUTTON      "Cancel",             IDCANCEL,       100, 138, 50, 14
+END
+
+IDD_FILTER DIALOG DISCARDABLE 0, 0, 200, 246
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Filter"
+FONT 8, "MS Sans Serif"
+BEGIN
+  LTEXT           "Shortest (seconds):", -1,              10, 12, 90, 8
+  EDITTEXT        IDC_FLT_MINLEN,               110, 10, 60, 12, ES_AUTOHSCROLL | WS_TABSTOP
+  LTEXT           "Longest (seconds):", -1,               10, 27, 90, 8
+  EDITTEXT        IDC_FLT_MAXLEN,               110, 25, 60, 12, ES_AUTOHSCROLL | WS_TABSTOP
+  AUTOCHECKBOX    "Playable files only", IDC_FLT_PLAYABLE, 10, 42, 120, 10
+  GROUPBOX        "File types (none ticked = show all)", IDC_FLT_GROUP, 8, 56, 184, 158
+  PUSHBUTTON      "Clear filter",      IDC_FLT_CLEAR, 10, 226, 50, 14
+  DEFPUSHBUTTON   "OK",                  IDOK,            75, 226, 50, 14
+  PUSHBUTTON      "Cancel",             IDCANCEL,       135, 226, 50, 14
+END
+
+IDD_INPUT DIALOG DISCARDABLE 0, 0, 170, 52
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "modjuke95"
+FONT 8, "MS Sans Serif"
+BEGIN
+  EDITTEXT        IDC_INPUT_TEXT, 10, 10, 150, 12, ES_AUTOHSCROLL | WS_TABSTOP
+  DEFPUSHBUTTON   "OK",            IDOK,      30, 30, 50, 14
+  PUSHBUTTON      "Cancel",        IDCANCEL,  90, 30, 50, 14
+END
+
+IDD_IGNORED DIALOG DISCARDABLE 0, 0, 230, 140
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Ignored tracks"
+FONT 8, "MS Sans Serif"
+BEGIN
+  LTEXT           "These files are hidden and never played. Remove to unhide.", -1, 10, 8, 210, 8
+  LISTBOX         IDC_IGN_LIST,     10, 20, 210, 90, LBS_NOTIFY | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+  PUSHBUTTON      "Remove",         IDC_IGN_REMOVE,    10, 118, 50, 14
+  PUSHBUTTON      "Remove all",     IDC_IGN_CLEARALL,  66, 118, 50, 14
+  DEFPUSHBUTTON   "Close",          IDOK,             170, 118, 50, 14
+END
+
+IDD_ABOUT DIALOG DISCARDABLE 0, 0, 200, 90
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About modjuke95"
+FONT 8, "MS Sans Serif"
+BEGIN
+  LTEXT           "modjuke95, by FlamingLeo, 2026",        -1, 10, 12, 180, 10
+  LTEXT           "A Win95-native tracker music player.", -1, 10, 28, 180, 10
+  LTEXT           "Decoding: libopenmpt 0.8.9 (static).",  -1, 10, 42, 180, 10
+  LTEXT           "Audio: winmm waveOut. UI: Win32.",-1, 10, 56, 180, 10
+  DEFPUSHBUTTON   "OK",                  IDOK, 75, 70, 50, 14
+END
