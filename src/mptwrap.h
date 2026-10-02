@@ -39,6 +39,7 @@ public:
     int bpm() const;
     int channels() const;
     int subsongs() const;
+    int subsong() const; /* selected subsong, 1-based (0: all or none) */
     /* pattern data for the tracker view */
     int numOrders() const;
     int orderPattern(int order) const;

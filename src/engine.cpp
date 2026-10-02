@@ -624,6 +624,8 @@ void Engine::run()
         snap_.rate = rate_;
         snap_.played = playedSec_;
         snap_.bufMs = rate_ ? (int)(frames_ * 1000 / rate_) : 0;
+        snap_.sub = mod_.isOpen() ? mod_.subsong() : 0;
+        snap_.gen = curGen_;
         /* audible position (what the speakers have had), not the render
          * position which sits queued ahead of them */
         snap_.heard = snap_.pos;

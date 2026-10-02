@@ -28,6 +28,8 @@ struct EngineSnap
     int order = 0, pat = 0, row = 0, speed = 0, bpm = 0, channels = 0;
     int rate = 0;
     double heard = 0; /* audible position in seconds (vs pos = render pos) */
+    int sub = 0;      /* subsong being played, 1-based (0: none) */
+    unsigned gen = 0; /* load/stop generation this snapshot belongs to */
     int bufMs = 0;    /* length of one output buffer in use */
     bool trkValid = false;   /* tracker-display row (= heard position) */
     int trkOrder = 0, trkPat = 0, trkRow = 0;

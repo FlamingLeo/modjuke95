@@ -155,7 +155,7 @@ static void refresh_count()
         unsigned total = (unsigned)G.src().size();
         unsigned vis = (unsigned)G.view.size();
         unsigned other = (unsigned)G.hiddenBy(G.srcSel).size();
-        /* playlist names can be up to 255 chars - build in a std::string,
+        /* playlist names can be up to 120 chars - build in a std::string,
          * a fixed 96-byte buffer here would overflow */
         std::string rb;
         {
@@ -1005,7 +1005,6 @@ static void load_current(int subsong, double startPos = 0, bool startPaused = fa
     Track *t = current_track();
     if (!t)
         return;
-    G.keepSession = false;
     DWORD at = GetFileAttributesA(t->path.c_str());
     if (at == 0xFFFFFFFF || (at & FILE_ATTRIBUTE_DIRECTORY)) {
         /* the marker already moved here: stop whatever played before, so
@@ -1230,8 +1229,6 @@ static bool vec_has_path(const std::vector<Track> &v, const std::string &path)
     return false;
 }
 
-/* drop duplicate paths (case-insensitive, like lib_has_path), keeping the
- * first occurrence; call with G.acs held */
 /* drop duplicate paths (case-insensitive, like the add-file checks),
  * keeping the first occurrence; call with G.acs held. One pass over a
  * seen-set of lowered paths: the old version re-lowercased every earlier
@@ -3071,6 +3068,22 @@ static void refresh_ui()
     }
 }
 
+/* once the engine has loaded the latest requested song: a kept session of
+ * the other edition is replaced from now on, and the subsong follows what
+ * the engine plays (a saved one past the end falls back to the first) */
+static void sync_loaded()
+{
+    EngineSnap s = G.engine.snap();
+    if (!s.loaded || s.gen != G.engine.generation())
+        return;
+    G.keepSession = false;
+    if (s.sub > 0 && s.sub != G.curSub) {
+        G.curSub = s.sub;
+        if (Track *t = current_track())
+            fill_subsongs(t->ss, G.curSub);
+    }
+}
+
 /* ---------------- tracker (pattern) view ----------------
  * Owner-drawn child: monospace bitmap font, one TextOut per row, current
  * row inverted and centered. Everything is erased+drawn inside WM_PAINT so
@@ -3437,15 +3450,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             if (fsrc >= 0) {
                 G.playSrc = fsrc;
                 G.playIdx = fidx;
-                /* clamp a stale subsong against the known count
-                 * (unanalyzed tracks report ss == 1; trust those) */
-                {
-                    Track *ft = current_track();
-                    if (ft && ft->analyzed && ft->ss > 1 && sub > ft->ss)
-                        sub = ft->ss;
-                }
                 /* load_current fills the info panel/caption; the engine
-                 * opens the song already paused at the old position */
+                 * opens the song already paused at the old position (a
+                 * subsong past the end plays the first, see sync_loaded) */
                 load_current(sub, pos > 0.5 ? pos : 0, true);
                 refresh_titles();
                 logline("Resumed %s (paused)", m95_basename(lp).c_str());
@@ -3616,6 +3623,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             HWND fg = GetForegroundWindow();
             bool ours = (fg == h) || (fg && GetWindow(fg, GW_OWNER) == h);
             apply_power_mode(IsIconic(h) ? 2 : (ours ? 0 : 1));
+            sync_loaded(); /* also while minimized: it feeds the session save */
             if (G.powerMode != 2)
                 refresh_ui();
         } else if (wp == 2) {
@@ -3858,7 +3866,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
  *  - search box: typing keys stay in the edit; Esc clears the search,
  *    Tab/Enter/Down go to the list; F-keys and Ctrl+letter still work
  *  - an open drop-down list owns every key (Enter/Esc/arrows/letters)
- *  - a focused button or checkbox owns Space and Enter
+ *  - a focused button keeps Enter; Space is always play/pause
  * Returns true when the message was handled here. */
 static bool translate_keys(MSG *m)
 {

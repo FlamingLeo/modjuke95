@@ -30,8 +30,11 @@ bool MptModule::loadFile(const std::string &path, int subsong, std::string *err,
         openmpt_free_string(errmsg); /* the caller owns it (NULL is fine) */
         return false;
     }
+    /* a number past the end (a saved session after the file changed)
+     * plays the first subsong; subsong() then reports what was chosen */
     if (subsong > 0)
-        openmpt_module_select_subsong(m_, subsong - 1);
+        openmpt_module_select_subsong(
+            m_, subsong <= openmpt_module_get_num_subsongs(m_) ? subsong - 1 : 0);
     openmpt_module_set_repeat_count(m_, 0);
     return true;
 }
@@ -83,6 +86,7 @@ std::string MptModule::cellText(int pattern, int row, int channel, int cmd) cons
     return r;
 }
 int MptModule::subsongs() const { return m_ ? openmpt_module_get_num_subsongs(m_) : 1; }
+int MptModule::subsong() const { return m_ ? openmpt_module_get_selected_subsong(m_) + 1 : 0; }
 bool MptModule::selectSubsong(int n) { return m_ ? openmpt_module_select_subsong(m_, n) != 0 : false; }
 void MptModule::setRepeat(int n)
 {
