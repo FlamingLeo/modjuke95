@@ -142,7 +142,7 @@ STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "About modjuke95"
 FONT 8, "MS Sans Serif"
 BEGIN
-  LTEXT           "modjuke95, by FlamingLeo, 2026",        -1, 10, 12, 180, 10
+  LTEXT           "modjuke95, by FlamingLeo, 2026 (MIT License)", -1, 10, 12, 240, 10
   LTEXT           "A Win95-native tracker music player.", -1, 10, 28, 180, 10
   LTEXT           "Decoding: libopenmpt 0.8.9 (static).",  -1, 10, 42, 180, 10
   LTEXT           "Audio: winmm waveOut. UI: Win32.",-1, 10, 56, 240, 10

@@ -177,3 +177,8 @@ needs; `sh build.sh full` or `sh build.sh common` builds one edition.
 | `build.sh` | Compiles and links both editions, then runs the Win95 import and SSE audits |
 | `rebuild.sh` | Fetches the llvm-mingw toolchain, `--libopenmpt` builds libopenmpt 0.8.9 for Win95, full and common formats |
 | `rebuild-rt.sh` | Rebuilds the static runtime (mingw-w64 v14 CRT for `CRTDLL.DLL`, libc++, libc++abi, libunwind, compiler-rt) for i486 without SSE |
+| `LICENSE`, `THIRD-PARTY.txt`, `licenses/` | modjuke95's license (MIT), and the third-party code compiled into the exe with its license texts |
+
+## License
+
+modjuke95 is released under the [MIT License](LICENSE). The exe also contains libopenmpt (BSD 3-Clause, with stb_vorbis, minimp3 and miniz), the MinGW-w64 runtime and LLVM's runtime libraries; see [THIRD-PARTY.txt](THIRD-PARTY.txt) and the texts in `licenses/`.

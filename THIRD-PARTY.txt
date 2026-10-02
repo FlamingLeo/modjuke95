@@ -1,0 +1,24 @@
+modjuke95 is licensed under the MIT License (LICENSE). modjuke95.exe is
+linked statically: it contains the following third-party code, each under
+its own license; the texts are in the licenses folder.
+
+libopenmpt 0.8.9 (https://lib.openmpt.org/)
+  BSD 3-Clause license: licenses/libopenmpt.txt.
+  Built from the official source release with its bundled decoders:
+  - stb_vorbis (Vorbis samples; MIT or public domain): licenses/stb_vorbis.txt
+  - minimp3 (MP3 samples; CC0, full edition only): licenses/minimp3.txt
+  - miniz (compressed formats; MIT, full edition only): licenses/miniz.txt
+
+MinGW-w64 runtime 14.0.0 (https://www.mingw-w64.org/)
+  Startup and C library helper code. ZPL 2.1, with parts in the public
+  domain or under BSD-style licenses: licenses/mingw-w64-runtime.txt.
+
+LLVM runtime libraries 23.1.2 (https://llvm.org/): libc++, libc++abi,
+libunwind and compiler-rt builtins
+  Apache License 2.0 with LLVM Exceptions: licenses/LLVM.txt. (The
+  exception waives the notice requirements for code compiled into a
+  program; the text is included for the prebuilt libraries in the source
+  package.)
+
+Not included: CRTDLL.DLL, the C runtime modjuke95 uses, is part of Windows
+95/98/Me and is loaded from the system.
