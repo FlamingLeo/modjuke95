@@ -511,7 +511,9 @@ extern "C" char *__cxa_demangle(const char *, char *, size_t *, int *status)
 
 extern "C" IMAGE_DOS_HEADER __ImageBase; /* linker-provided: our own image */
 
-static FILE *crashlog_open(const char *tag, void *ret)
+/* from/top: the stack to scan (a faulting thread's ESP and stack top);
+ * NULL scans the calling thread's own stack */
+static FILE *crashlog_open(const char *tag, void *ret, void **from = NULL, void **top = NULL)
 {
     char path[MAX_PATH];
     if (!GetModuleFileNameA(NULL, path, MAX_PATH))
@@ -548,9 +550,11 @@ static FILE *crashlog_open(const char *tag, void *ret)
                 thi = tlo + sh->Misc.VirtualSize;
             }
     }
-    void **sp, **top;
-    __asm__ volatile("movl %%esp, %0" : "=r"(sp));
-    __asm__ volatile("movl %%fs:4, %0" : "=r"(top));
+    void **sp = from;
+    if (!sp) {
+        __asm__ volatile("movl %%esp, %0" : "=r"(sp));
+        __asm__ volatile("movl %%fs:4, %0" : "=r"(top));
+    }
     int n = 0;
     for (int i = 0; i < 512 && sp + i < top; i++) {
         unsigned long a = (unsigned long)sp[i];
@@ -570,13 +574,14 @@ struct FaultInfo
 {
     DWORD code;
     void *eip;
+    void **esp, **top; /* the faulting thread's stack */
 };
 static DWORD WINAPI fault_log_thread(LPVOID p)
 {
     FaultInfo *fi = (FaultInfo *)p;
     char tag[96];
     sprintf(tag, "FAULT code=%08lx eip=%p (stack overflow)", (unsigned long)fi->code, fi->eip);
-    FILE *f = crashlog_open(tag, fi->eip);
+    FILE *f = crashlog_open(tag, fi->eip, fi->esp, fi->top);
     if (f)
         fclose(f);
     return 0;
@@ -586,10 +591,16 @@ static DWORD WINAPI fault_log_thread(LPVOID p)
  * so they leave a crash log instead of just a dialog. */
 static LONG WINAPI m95_fault_filter(PEXCEPTION_POINTERS ep)
 {
+    /* scan from where the fault happened, not from here: the exception
+     * dispatch frames in between can fill the whole scan window */
+    void **esp = (void **)(DWORD_PTR)ep->ContextRecord->Esp, **top;
+    __asm__ volatile("movl %%fs:4, %0" : "=r"(top));
     if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
         static FaultInfo fi; /* not on the exhausted stack */
         fi.code = ep->ExceptionRecord->ExceptionCode;
         fi.eip = ep->ExceptionRecord->ExceptionAddress;
+        fi.esp = esp;
+        fi.top = top;
         DWORD tid;
         HANDLE th = CreateThread(NULL, 0x10000, fault_log_thread, &fi, 0, &tid);
         if (th) {
@@ -602,7 +613,7 @@ static LONG WINAPI m95_fault_filter(PEXCEPTION_POINTERS ep)
     sprintf(tag, "FAULT code=%08lx eip=%p",
             (unsigned long)ep->ExceptionRecord->ExceptionCode,
             ep->ExceptionRecord->ExceptionAddress);
-    FILE *f = crashlog_open(tag, ep->ExceptionRecord->ExceptionAddress);
+    FILE *f = crashlog_open(tag, ep->ExceptionRecord->ExceptionAddress, esp, top);
     if (f)
         fclose(f);
     return EXCEPTION_EXECUTE_HANDLER;
