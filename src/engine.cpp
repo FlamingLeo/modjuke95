@@ -1,6 +1,13 @@
 #include "engine.h"
 #include "res.h"
 
+/* silence: every sample below -60 dBFS for 2 s */
+static const int kSilencePeak = 33;
+static const int kSilenceSec = 2;
+/* the silence check renders without interpolation and at most at half
+ * rate, the cheapest setting; song positions are the same at any rate */
+static const int kCheckRate = 22050;
+
 static void post_log(HWND hwnd, const char *fmt, ...)
 {
     char buf[1024];
@@ -463,6 +470,8 @@ void Engine::run()
             case Cmd::LOAD: {
                 stopPlayback();
                 curGen_ = c.gen;
+                path_ = c.path;
+                loadSub_ = c.i;
                 std::string err;
                 /* file read + libopenmpt load and length scan at normal
                  * priority: nothing is playing, and a long parse at
@@ -578,6 +587,15 @@ void Engine::run()
         if (regain)
             regainQueued();
 
+        /* the rest of the song is silent: the queued buffers play out into
+         * the normal song end (after a pause, once it is resumed) */
+        unsigned found = silenceFound_.exchange(0);
+        if (found && found == silenceRun_.load() && playing_ && !eof_) {
+            eof_ = true;
+            post_log(hwnd_, "%s: skipped %s of silence at the end",
+                     m95_basename(path_).c_str(), m95_fmt_time(silenceMs_.load() / 1000.0).c_str());
+        }
+
         if (clockMode_ && playing_ && !paused_) {
             /* nominal-rate wall clock: advance exactly as much as wall time
              * passed; bounded by construction (no device lies involved) */
@@ -667,7 +685,12 @@ void Engine::run()
         if (quit_)
             break;
     }
-    stopPlayback();
+    stopPlayback(); /* also stops a running silence check */
+    if (silenceThread_) {
+        WaitForSingleObject(silenceThread_, INFINITE);
+        CloseHandle(silenceThread_);
+        silenceThread_ = NULL;
+    }
 }
 
 /* reposition playback (SEEK, and the start position of a resumed LOAD);
@@ -675,6 +698,7 @@ void Engine::run()
 void Engine::seekInternal(double seconds)
 {
     mod_.seek(seconds);
+    resetSilence();
     waveOutReset(hwo_);
     for (size_t b = 0; b < bufs_.size(); b++)
         bufs_[b].queued = false;
@@ -746,6 +770,7 @@ void Engine::stopPlayback()
         hwo_ = NULL;
     }
     mod_.close();
+    resetSilence();
     patCache_.clear();
     rowHist_.clear();
     totalRendered_ = 0;
@@ -1054,6 +1079,7 @@ bool Engine::refill()
             if (rowHist_.empty() || rowHist_.back().samples != e.samples)
                 rowHist_.push_back(e);
             convert(src, n, out + done * (size_t)devCh_ * devBits_ / 8);
+            trackSilence(src, n);
             done += n;
         }
         if (done == 0) {
@@ -1074,4 +1100,102 @@ bool Engine::refill()
         }
     }
     return true;
+}
+
+/* any sample at or above the silence level */
+static bool audible(const int16_t *pcm, size_t frames)
+{
+    for (size_t k = 0; k < frames * 2; k++)
+        if (pcm[k] >= kSilencePeak || pcm[k] <= -kSilencePeak)
+            return true;
+    return false;
+}
+
+/* After kSilenceSec of silence (before the volume), a check thread plays the
+ * song again from its start (a seek does not restore every sample that a
+ * later note or volume change can make audible) and reports back if nothing
+ * from the silent stretch on is audible; run() then ends the song. */
+void Engine::trackSilence(const int16_t *pcm, size_t frames)
+{
+    if (audible(pcm, frames)) {
+        if (silentFrames_)
+            resetSilence();
+        return;
+    }
+    silentFrames_ += (long long)frames;
+    if (silenceChecked_ || silentFrames_ < (long long)rate_ * kSilenceSec)
+        return;
+    if (silenceThread_) {
+        /* a check for an earlier stretch stops at its next chunk; the next
+         * silent chunks try again until it has */
+        if (WaitForSingleObject(silenceThread_, 0) != WAIT_OBJECT_0)
+            return;
+        CloseHandle(silenceThread_);
+        silenceThread_ = NULL;
+    }
+    silenceChecked_ = true;
+    SilenceJob *job = new SilenceJob;
+    job->engine = this;
+    job->path = path_;
+    job->subsong = loadSub_;
+    job->rate = rate_ < kCheckRate ? rate_ : kCheckRate;
+    job->position = mod_.position();
+    job->run = silenceRun_.load();
+    DWORD tid = 0;
+    silenceThread_ = CreateThread(NULL, 0x100000, silenceMain, job, 0, &tid);
+    if (!silenceThread_)
+        delete job;
+}
+
+/* a new silent stretch, or none; a running check for the old one stops */
+void Engine::resetSilence()
+{
+    silentFrames_ = 0;
+    silenceChecked_ = false;
+    silenceRun_.fetch_add(1);
+}
+
+DWORD WINAPI Engine::silenceMain(LPVOID p)
+{
+    SilenceJob *job = (SilenceJob *)p;
+    /* beneath the UI and audio threads, like the analyzer */
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    try {
+        job->engine->checkSilence(*job);
+    } catch (...) {
+        /* no answer: the song plays on */
+    }
+    delete job;
+    return 0;
+}
+
+void Engine::checkSilence(const SilenceJob &job)
+{
+    /* a second decoder, loaded like the playing one */
+    MptModule m;
+    if (!m.loadFile(job.path, job.subsong, NULL))
+        return;
+    m.setRenderParam(OPENMPT_MODULE_RENDER_INTERPOLATIONFILTER_LENGTH, 1);
+    /* play from the start; sound from the silent stretch on keeps the song going */
+    const size_t chunk = (size_t)job.rate / 50;
+    std::vector<int16_t> pcm(chunk * 2);
+    const double from = job.position - kSilenceSec;
+    size_t after = 0;
+    for (;;) {
+        if (silenceRun_.load() != job.run)
+            return; /* seek, another song or exit */
+        const double start = m.position();
+        const size_t got = m.readInt16(job.rate, chunk, pcm.data());
+        if (got == 0)
+            break;
+        if (start >= from && audible(pcm.data(), got))
+            return;
+        if (start >= job.position)
+            after += got;
+    }
+    /* ended before reaching the playback position: it played differently */
+    if (after == 0)
+        return;
+    silenceMs_.store((long)((double)after * 1000 / job.rate));
+    silenceFound_.store(job.run);
 }

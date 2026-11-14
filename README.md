@@ -17,6 +17,7 @@ for Windows 95, 98 and Me.
 - A live tracker view with centered playback following and channel paging.
 - Song information, tracker/format metadata, and sequencer state.
 - Track looping, queue repeat, shuffle orders, and subsong selection.
+- Skips silence at the end of a song.
 - Configurable output sample rate, interpolation, buffering, and tracker display delay.
 
 ## Requirements
@@ -99,6 +100,17 @@ Files containing several subsongs play the first one by default. Tick
 **Play all subsongs** to play every subsong of a file in order before
 moving on. The subsong drop-down above the list jumps directly to any
 subsong of the selected track.
+
+### Silence at the end of a song
+
+Some modules end with a long silence, for example empty rows at a very
+slow tempo. After 2 seconds of silence, the player checks the rest of the
+song in the background. If nothing audible is left, playback moves on as
+if the song had ended: to the next subsong with **Play all subsongs**,
+back to the start with **Loop**, or otherwise to the next song in the
+queue. Pauses followed by more music are played in full. Volume and mute
+do not affect the check. The displayed length still includes the skipped
+silence. On a slow PC the check takes longer, so the skip can come later.
 
 ## Settings and audio
 

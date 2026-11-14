@@ -1,5 +1,6 @@
 #pragma once
 #include "mptwrap.h"
+#include <atomic>
 #include <map>
 
 /* one fetched tracker-view window; ownership passes with the WM_APP_ROWS
@@ -110,6 +111,22 @@ private:
     void regainQueued();
     bool checkDry();
 
+    /* silence at the end of a song: a silent stretch that a check finds
+     * lasting to the end stops the rendering early */
+    struct SilenceJob
+    {
+        Engine *engine = nullptr;
+        std::string path;
+        int subsong = 0;
+        int rate = 0;
+        double position = 0; /* render position after the first 2 s of silence */
+        unsigned run = 0;
+    };
+    void trackSilence(const int16_t *pcm, size_t frames);
+    void resetSilence();
+    static DWORD WINAPI silenceMain(LPVOID p);
+    void checkSilence(const SilenceJob &job);
+
     HWND hwnd_ = NULL;
     HANDLE cmdEv_ = NULL;
     HANDLE audioEv_ = NULL;
@@ -212,4 +229,18 @@ private:
     int vol_ = 80;
     bool mute_ = false;
     EngineSnap snap_;
+    /* silence at the end of a song, engine thread only */
+    std::string path_;           /* the loaded file and the subsong it was */
+    int loadSub_ = 0;            /* loaded with, for the check's own copy */
+    long long silentFrames_ = 0; /* rendered since the last audible chunk */
+    bool silenceChecked_ = false;
+    HANDLE silenceThread_ = NULL;
+    /* shared with the check thread without a lock, which a below-normal
+     * thread could hold while the time-critical engine waits for it.
+     * silenceRun_ names the current silent stretch (the check stops when it
+     * changes); the check stores the run it found silent to the end in
+     * silenceFound_, after the seconds of silence left in silenceMs_ */
+    std::atomic<unsigned> silenceRun_{0};
+    std::atomic<unsigned> silenceFound_{0};
+    std::atomic<long> silenceMs_{0};
 };

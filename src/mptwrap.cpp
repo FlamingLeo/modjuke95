@@ -54,7 +54,23 @@ size_t MptModule::readInt16(int rate, size_t frames, int16_t *out)
 
 double MptModule::duration() const { return m_ ? openmpt_module_get_duration_seconds(m_) : -1.0; }
 double MptModule::position() const { return m_ ? openmpt_module_get_position_seconds(m_) : 0.0; }
-double MptModule::seek(double s) { return m_ ? openmpt_module_set_position_seconds(m_, s) : 0.0; }
+/* In subsongs after the first, a seek in seconds can make libopenmpt miss the
+ * subsong's end and play on into later subsongs. Seeking again to the order
+ * and row it landed on keeps the end. A row inside a pattern loop plays more
+ * than once, so that second seek can land elsewhere; then the first one stays. */
+double MptModule::seek(double s)
+{
+    if (!m_)
+        return 0.0;
+    const double landed = openmpt_module_set_position_seconds(m_, s);
+    if (openmpt_module_get_selected_subsong(m_) <= 0)
+        return landed;
+    const double again = openmpt_module_set_position_order_row(
+        m_, openmpt_module_get_current_order(m_), openmpt_module_get_current_row(m_));
+    if (again - landed > 0.01 || landed - again > 0.01)
+        return openmpt_module_set_position_seconds(m_, s);
+    return again;
+}
 int MptModule::order() const { return m_ ? openmpt_module_get_current_order(m_) : 0; }
 int MptModule::pattern() const { return m_ ? openmpt_module_get_current_pattern(m_) : 0; }
 int MptModule::row() const { return m_ ? openmpt_module_get_current_row(m_) : 0; }
