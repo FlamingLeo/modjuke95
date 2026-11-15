@@ -71,6 +71,10 @@ double MptModule::seek(double s)
         return openmpt_module_set_position_seconds(m_, s);
     return again;
 }
+double MptModule::seekOrderRow(int order, int row)
+{
+    return m_ ? openmpt_module_set_position_order_row(m_, order, row) : 0.0;
+}
 int MptModule::order() const { return m_ ? openmpt_module_get_current_order(m_) : 0; }
 int MptModule::pattern() const { return m_ ? openmpt_module_get_current_pattern(m_) : 0; }
 int MptModule::row() const { return m_ ? openmpt_module_get_current_row(m_) : 0; }

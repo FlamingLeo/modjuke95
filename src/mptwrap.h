@@ -32,6 +32,7 @@ public:
     double duration() const;
     double position() const;
     double seek(double seconds);
+    double seekOrderRow(int order, int row);
     int order() const;
     int pattern() const;
     int row() const;

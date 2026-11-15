@@ -103,7 +103,8 @@ private:
     void stopPlayback();
     bool openDevice(const AudioSettings &s);
     bool refill(); /* false: waveOutWrite failed */
-    void seekInternal(double seconds);
+    /* order >= 0: to that row (by time when the row plays more than once) */
+    void seekInternal(double seconds, int order = -1, int row = -1);
     void failPlayback(int reason, const char *why);
     double paceMs() const;
     void convert(const int16_t *src, size_t frames, BYTE *dst) const;
@@ -238,9 +239,15 @@ private:
     /* shared with the check thread without a lock, which a below-normal
      * thread could hold while the time-critical engine waits for it.
      * silenceRun_ names the current silent stretch (the check stops when it
-     * changes); the check stores the run it found silent to the end in
-     * silenceFound_, after the seconds of silence left in silenceMs_ */
+     * changes); the check stores the run it found silent to the end, or to
+     * where the music comes back after a long silence, in silenceFound_,
+     * after the seconds of silence left in silenceMs_ and the music's time
+     * (-1: none) and row in silenceResumeMs_, silenceResumeOrder_ and
+     * silenceResumeRow_ */
     std::atomic<unsigned> silenceRun_{0};
     std::atomic<unsigned> silenceFound_{0};
     std::atomic<long> silenceMs_{0};
+    std::atomic<long> silenceResumeMs_{-1};
+    std::atomic<int> silenceResumeOrder_{0};
+    std::atomic<int> silenceResumeRow_{0};
 };

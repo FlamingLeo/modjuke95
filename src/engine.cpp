@@ -4,6 +4,8 @@
 /* silence: every sample below -60 dBFS for 2 s */
 static const int kSilencePeak = 33;
 static const int kSilenceSec = 2;
+/* a silence this long before more music is skipped as well */
+static const int kSkipGapSec = 10;
 /* the silence check renders without interpolation and at most at half
  * rate, the cheapest setting; song positions are the same at any rate */
 static const int kCheckRate = 22050;
@@ -588,12 +590,26 @@ void Engine::run()
             regainQueued();
 
         /* the rest of the song is silent: the queued buffers play out into
-         * the normal song end (after a pause, once it is resumed) */
-        unsigned found = silenceFound_.exchange(0);
+         * the normal song end (after a pause, once it is resumed); or the
+         * music comes back after a long silence: on from there, once a
+         * pause ends */
+        unsigned found = silenceFound_.load();
+        if (found && paused_ && silenceResumeMs_.load() >= 0)
+            found = 0;
+        else if (found)
+            found = silenceFound_.exchange(0);
         if (found && found == silenceRun_.load() && playing_ && !eof_) {
-            eof_ = true;
-            post_log(hwnd_, "%s: skipped %s of silence at the end",
-                     m95_basename(path_).c_str(), m95_fmt_time(silenceMs_.load() / 1000.0).c_str());
+            const long resumeMs = silenceResumeMs_.load();
+            const double from = mod_.position();
+            if (resumeMs < 0) {
+                eof_ = true;
+                post_log(hwnd_, "%s: skipped %s of silence at the end",
+                         m95_basename(path_).c_str(), m95_fmt_time(silenceMs_.load() / 1000.0).c_str());
+            } else if (resumeMs / 1000.0 > from) {
+                post_log(hwnd_, "%s: skipped %s of silence", m95_basename(path_).c_str(),
+                         m95_fmt_time(resumeMs / 1000.0 - from).c_str());
+                seekInternal(resumeMs / 1000.0, silenceResumeOrder_.load(), silenceResumeRow_.load());
+            }
         }
 
         if (clockMode_ && playing_ && !paused_) {
@@ -695,9 +711,11 @@ void Engine::run()
 
 /* reposition playback (SEEK, and the start position of a resumed LOAD);
  * keeps the current pause state */
-void Engine::seekInternal(double seconds)
+void Engine::seekInternal(double seconds, int order, int row)
 {
-    mod_.seek(seconds);
+    const double before = mod_.position();
+    if (order < 0 || mod_.seekOrderRow(order, row) <= before)
+        mod_.seek(seconds);
     resetSilence();
     waveOutReset(hwo_);
     for (size_t b = 0; b < bufs_.size(); b++)
@@ -1114,7 +1132,8 @@ static bool audible(const int16_t *pcm, size_t frames)
 /* After kSilenceSec of silence (before the volume), a check thread plays the
  * song again from its start (a seek does not restore every sample that a
  * later note or volume change can make audible) and reports back if nothing
- * from the silent stretch on is audible; run() then ends the song. */
+ * from the silent stretch on is audible, or where the music comes back after
+ * kSkipGapSec or more; run() then ends the song or goes on from there. */
 void Engine::trackSilence(const int16_t *pcm, size_t frames)
 {
     if (audible(pcm, frames)) {
@@ -1176,11 +1195,13 @@ void Engine::checkSilence(const SilenceJob &job)
     if (!m.loadFile(job.path, job.subsong, NULL))
         return;
     m.setRenderParam(OPENMPT_MODULE_RENDER_INTERPOLATIONFILTER_LENGTH, 1);
-    /* play from the start; sound from the silent stretch on keeps the song going */
+    /* play from the start up to the first sound after the silent stretch starts */
     const size_t chunk = (size_t)job.rate / 50;
     std::vector<int16_t> pcm(chunk * 2);
     const double from = job.position - kSilenceSec;
     size_t after = 0;
+    double resumeAt = -1.0;
+    int order = 0, row = 0;
     for (;;) {
         if (silenceRun_.load() != job.run)
             return; /* seek, another song or exit */
@@ -1188,14 +1209,24 @@ void Engine::checkSilence(const SilenceJob &job)
         const size_t got = m.readInt16(job.rate, chunk, pcm.data());
         if (got == 0)
             break;
-        if (start >= from && audible(pcm.data(), got))
-            return;
+        if (start >= from && audible(pcm.data(), got)) {
+            /* the sound comes with the row that started in these frames,
+             * or else with the row they started in */
+            resumeAt = start;
+            order = m.order();
+            row = m.row();
+            break;
+        }
         if (start >= job.position)
             after += got;
     }
-    /* ended before reaching the playback position: it played differently */
-    if (after == 0)
+    /* sound before the playback position, or the song ended before it: it
+     * played differently; a short silence before more music stays */
+    if (after == 0 || (resumeAt >= 0.0 && resumeAt - from < kSkipGapSec))
         return;
     silenceMs_.store((long)((double)after * 1000 / job.rate));
+    silenceResumeMs_.store(resumeAt >= 0.0 ? (long)(resumeAt * 1000) : -1);
+    silenceResumeOrder_.store(order);
+    silenceResumeRow_.store(row);
     silenceFound_.store(job.run);
 }

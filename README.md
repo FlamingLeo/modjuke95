@@ -17,7 +17,7 @@ for Windows 95, 98 and Me.
 - A live tracker view with centered playback following and channel paging.
 - Song information, tracker/format metadata, and sequencer state.
 - Track looping, queue repeat, shuffle orders, and subsong selection.
-- Skips silence at the end of a song.
+- Skips silence at the end of a song and long silences within it.
 - Configurable output sample rate, interpolation, buffering, and tracker display delay.
 
 ## Requirements
@@ -101,16 +101,22 @@ Files containing several subsongs play the first one by default. Tick
 moving on. The subsong drop-down above the list jumps directly to any
 subsong of the selected track.
 
-### Silence at the end of a song
+### Silence
 
-Some modules end with a long silence, for example empty rows at a very
-slow tempo. After 2 seconds of silence, the player checks the rest of the
-song in the background. If nothing audible is left, playback moves on as
-if the song had ended: to the next subsong with **Play all subsongs**,
-back to the start with **Loop**, or otherwise to the next song in the
-queue. Pauses followed by more music are played in full. Volume and mute
-do not affect the check. The displayed length still includes the skipped
-silence. On a slow PC the check takes longer, so the skip can come later.
+Some modules end with a long silence, or have one between two parts, for
+example empty rows at a very slow tempo. After 2 seconds of silence, the
+player checks the rest of the song in the background:
+
+- If nothing audible is left, playback moves on as if the song had ended:
+  to the next subsong with **Play all subsongs**, back to the start with
+  **Loop**, or otherwise to the next song in the queue.
+- If the music comes back after a silence of 10 seconds or more, playback
+  jumps to where it does.
+- Shorter pauses are played in full.
+
+Volume and mute do not affect the check. The displayed length still
+includes the skipped silence. On a slow PC the check takes longer, so the
+skip can come later.
 
 ## Settings and audio
 
